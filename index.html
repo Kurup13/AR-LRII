@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AR.js NFT - IPF & GIK | KIT</title>
+  <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+  <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; font-family: 'Courier New', monospace; }
+
+    #status {
+      position: fixed;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.75);
+      color: #fff;
+      padding: 7px 18px;
+      border-radius: 20px;
+      font-size: 12px;
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      white-space: nowrap;
+    }
+    .dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: #e74c3c;
+      display: inline-block;
+      transition: background 0.3s;
+    }
+    .dot.on { background: #2ecc71; }
+
+    #bar-wrap {
+      position: fixed;
+      bottom: 74px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 230px;
+      background: rgba(0,0,0,0.7);
+      border-radius: 10px;
+      padding: 7px 14px 9px;
+      z-index: 9999;
+      color: #fff;
+      font-size: 11px;
+      text-align: center;
+    }
+    #bar-track {
+      width: 100%; height: 8px;
+      background: #444; border-radius: 4px;
+      margin-top: 6px; overflow: hidden;
+    }
+    #bar-fill {
+      height: 100%; width: 0%;
+      border-radius: 4px; background: #2ecc71;
+      transition: width 0.1s, background 0.3s;
+    }
+
+    #dist-overlay {
+      position: fixed;
+      bottom: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.8);
+      color: #fff;
+      padding: 10px 22px;
+      border-radius: 10px;
+      font-size: 14px;
+      z-index: 9999;
+      text-align: center;
+      min-width: 250px;
+    }
+    #dist-value { color: #2ecc71; font-size: 18px; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+  <div id="status">
+    <span class="dot" id="dot1"></span> IPF
+    &nbsp;
+    <span class="dot" id="dot2"></span> GIK
+    &nbsp;|&nbsp;
+    <span id="status-msg">Searching…</span>
+  </div>
+
+  <div id="bar-wrap">
+    Proximity to threshold (1.0 m)
+    <div id="bar-track"><div id="bar-fill"></div></div>
+  </div>
+
+  <div id="dist-overlay">
+    Distance: <span id="dist-value">--</span> m
+  </div>
+
+  <a-scene
+    vr-mode-ui="enabled: false"
+    embedded
+    arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix;"
+    renderer="logarithmicDepthBuffer: true; antialias: true;"
+  >
+
+    <!-- ══════════════════════════
+         NFT MARKER 1 — IPF
+         Needs these files in your
+         descriptors/ folder:
+           ipf.fset
+           ipf.fset3
+           ipf.iset
+    ══════════════════════════ -->
+    <a-nft
+      id="nft-ipf"
+      type="nft"
+      url="descriptors/ipf"
+      smooth="true"
+      smoothCount="10"
+      smoothTolerance="0.01"
+      smoothThreshold="5"
+      emitevents="true"
+    >
+      <a-sphere position="0 0.5 0" radius="0.4" color="#00FF00" opacity="0.9"></a-sphere>
+      <a-text value="IPF" position="0 1.3 0" align="center" color="#ffffff" width="3"></a-text>
+    </a-nft>
+
+    <!-- ══════════════════════════
+         NFT MARKER 2 — GIK
+         Needs these files in your
+         descriptors/ folder:
+           gik.fset
+           gik.fset3
+           gik.iset
+    ══════════════════════════ -->
+    <a-nft
+      id="nft-gik"
+      type="nft"
+      url="descriptors/gik"
+      smooth="true"
+      smoothCount="10"
+      smoothTolerance="0.01"
+      smoothThreshold="5"
+      emitevents="true"
+    >
+      <a-cylinder position="0 0.5 0" radius="0.3" height="0.8" color="#FFA500" opacity="0.9"></a-cylinder>
+      <a-text value="GIK" position="0 1.5 0" align="center" color="#ffffff" width="3"></a-text>
+    </a-nft>
+
+    <!-- Traveller object -->
+    <a-entity id="traveller">
+      <a-icosahedron radius="0.3" color="#FF00FF" opacity="0.95"
+        animation="property: rotation; to: 0 360 0; loop: true; dur: 1800; easing: linear;">
+      </a-icosahedron>
+    </a-entity>
+
+    <!-- Connector line -->
+    <a-entity id="connector"></a-entity>
+
+    <a-entity camera></a-entity>
+  </a-scene>
+
+  <script>
+
+    // ── SETTINGS ──────────────────────────────────────────
+    var THRESHOLD  = 1.0;      // metres — traveller moves below this
+    var LERP_SPEED = 0.03;     // travel speed (0.01 slow → 0.1 fast)
+    var LINE_COLOR = '#00FFFF';
+    var LINE_WIDTH = 0.04;
+    // ─────────────────────────────────────────────────────
+
+    var nftIPF    = document.getElementById('nft-ipf');
+    var nftGIK    = document.getElementById('nft-gik');
+    var traveller = document.getElementById('traveller');
+    var connector = document.getElementById('connector');
+    var distValue = document.getElementById('dist-value');
+    var statusMsg = document.getElementById('status-msg');
+    var dot1      = document.getElementById('dot1');
+    var dot2      = document.getElementById('dot2');
+    var barFill   = document.getElementById('bar-fill');
+
+    var visible = { ipf: false, gik: false };
+
+    // Marker events
+    nftIPF.addEventListener('markerFound', function() { visible.ipf = true;  dot1.classList.add('on'); });
+    nftIPF.addEventListener('markerLost',  function() { visible.ipf = false; dot1.classList.remove('on'); });
+    nftGIK.addEventListener('markerFound', function() { visible.gik = true;  dot2.classList.add('on'); });
+    nftGIK.addEventListener('markerLost',  function() { visible.gik = false; dot2.classList.remove('on'); });
+
+    // Get world position
+    function getWorldPos(entity) {
+      var v = new THREE.Vector3();
+      entity.object3D.getWorldPosition(v);
+      return v;
+    }
+
+    // Connecting line
+    var lineMesh = null;
+    function showLine(p1, p2) {
+      var mid  = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
+      var dist = p1.distanceTo(p2);
+      var dir  = new THREE.Vector3().subVectors(p2, p1).normalize();
+      if (!lineMesh) {
+        var geo  = new THREE.CylinderGeometry(LINE_WIDTH, LINE_WIDTH, 1, 8);
+        var mat  = new THREE.MeshBasicMaterial({ color: LINE_COLOR });
+        lineMesh = new THREE.Mesh(geo, mat);
+        connector.object3D.add(lineMesh);
+      }
+      lineMesh.visible = true;
+      lineMesh.position.copy(mid);
+      lineMesh.scale.set(1, dist, 1);
+      lineMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    }
+    function hideLine() { if (lineMesh) lineMesh.visible = false; }
+
+    // Traveller
+    var tPos = new THREE.Vector3(), tReady = false, tTarget = null;
+    function moveTraveller(p1, p2, dist) {
+      if (!tReady) { tPos.copy(p1); tReady = true; }
+      if (dist < THRESHOLD) {
+        if (!tTarget) tTarget = 'gik';
+        var target = (tTarget === 'gik') ? p2 : p1;
+        tPos.lerp(target, LERP_SPEED);
+        traveller.object3D.position.copy(tPos);
+        if (tPos.distanceTo(target) < 0.06) {
+          tTarget = (tTarget === 'gik') ? 'ipf' : 'gik';
+        }
+        statusMsg.textContent = 'Travelling! ' + dist.toFixed(2) + ' m';
+        statusMsg.style.color = '#FF00FF';
+      } else {
+        traveller.object3D.position.copy(p1);
+        tTarget = null;
+        statusMsg.textContent = 'Bring closer than ' + THRESHOLD + ' m';
+        statusMsg.style.color = '#ffffff';
+      }
+    }
+
+    // Proximity bar
+    function updateBar(dist) {
+      var pct = Math.max(0, Math.min(100, (1 - dist / (THRESHOLD * 2)) * 100));
+      barFill.style.width = pct + '%';
+      barFill.style.background = pct > 60 ? '#e74c3c' : pct > 30 ? '#f39c12' : '#2ecc71';
+    }
+
+    // Main loop
+    function update() {
+      if (visible.ipf && visible.gik) {
+        var p1   = getWorldPos(nftIPF);
+        var p2   = getWorldPos(nftGIK);
+        var dist = p1.distanceTo(p2);
+        distValue.textContent = dist.toFixed(3);
+        distValue.style.color = dist < THRESHOLD ? '#e74c3c' : '#2ecc71';
+        updateBar(dist);
+        showLine(p1, p2);
+        moveTraveller(p1, p2, dist);
+
+      } else if (visible.ipf || visible.gik) {
+        distValue.textContent = '--';
+        hideLine();
+        barFill.style.width = '0%';
+        tReady = false;
+        traveller.object3D.position.copy(getWorldPos(visible.ipf ? nftIPF : nftGIK));
+        statusMsg.textContent = 'Waiting for both markers…';
+        statusMsg.style.color = '#f39c12';
+
+      } else {
+        distValue.textContent = '--';
+        hideLine();
+        barFill.style.width = '0%';
+        tReady = false;
+        statusMsg.textContent = 'Searching for markers…';
+        statusMsg.style.color = '#ffffff';
+      }
+    }
+
+    setInterval(update, 50);
+  </script>
+</body>
+</html>
